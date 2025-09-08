@@ -11,10 +11,3 @@ dist/
 build/
 *.egg-info/
 .DS_Store
-
-out_cmb/
-figs/
-tables/
-*.png
-*.csv
-*.json

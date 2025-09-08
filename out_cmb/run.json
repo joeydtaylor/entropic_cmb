@@ -1,0 +1,35 @@
+{
+  "timestamp_utc": "2025-09-08T00:51:54.970008+00:00",
+  "args": {
+    "data": "/work/data/COM_PowerSpect_CMB-TT-full_R3.01.txt",
+    "outdir": "/work/out_cmb",
+    "epsilon_model": 0.075,
+    "sweep": "",
+    "ar1": true,
+    "ar1_calibrate": true,
+    "band_scatter": true,
+    "plot": true,
+    "mcmc": true,
+    "walkers": 64,
+    "steps": 1500,
+    "burn": 300,
+    "seed": 42,
+    "ppc_samples": 200,
+    "ell_min": null,
+    "ell_max": null,
+    "starts": 16,
+    "elm_enable": false,
+    "elm_mode": "bounded",
+    "elm_alpha": 0.35,
+    "elm_beta": 0.35,
+    "elm_gates": "",
+    "elm_phase_scale": 1.0,
+    "elm_scale": 1.0
+  },
+  "data_sha256": "ccf3113604020536f6f13ccf51680a7316ad0f32da558eee7f625e613bdd5522",
+  "versions": {
+    "python": "3.12.11 (main, Aug 13 2025, 10:28:18) [GCC 14.2.0]",
+    "numpy": "2.3.2",
+    "matplotlib": "3.10.6"
+  }
+}
