@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "egr-cmb"
+version = "0.1.0"
+description = "EGR-Freed7 CMB TT fitter with diagnostics (Docker-first)"
+requires-python = ">=3.10"
+readme = "README.md"
+authors = [{name="Joey Taylor"}]
+license = {text = "MIT"}
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "matplotlib>=3.8",
+  "emcee>=3.1",
+  "corner>=2.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+egr-cmb = "egrcmb.cli:main"
+egr-cmb-run-all = "egrcmb.run_all:main"

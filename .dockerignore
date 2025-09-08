@@ -1,0 +1,8 @@
+.venv
+.git
+__pycache__
+.ipynb_checkpoints
+dist
+build
+*.egg-info
+out_cmb
