@@ -1,6 +1,6 @@
 import numpy as np
 try:
-    import emcee, corner  # noqa: F401
+    import emcee  # noqa: F401
     HAS_EMCEE = True
 except Exception:
     HAS_EMCEE = False

@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 from .cli import run_cmb, build_argparser
 
 def main():
