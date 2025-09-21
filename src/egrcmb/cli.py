@@ -69,6 +69,7 @@ def run_cmb(args: argparse.Namespace) -> None:
     outdir = Path(args.outdir); outdir.mkdir(parents=True, exist_ok=True)
     outdir, figs_dir, tables_dir = ensure_dirs(outdir)
 
+    # ---------- data ----------
     data_path = Path(args.data)
     try:
         raw = np.loadtxt(data_path)
@@ -79,16 +80,44 @@ def run_cmb(args: argparse.Namespace) -> None:
     Dl_data     = raw[:, 1]
     Dl_err_min  = raw[:, 2]
     Dl_err_plus = raw[:, 3]
-    Dl_err_planck = 0.5*(Dl_err_min + Dl_err_plus)
+    Dl_err_planck = 0.5 * (Dl_err_min + Dl_err_plus)
 
     if args.ell_min is not None:
-        m = ell >= args.ell_min; ell, Dl_data, Dl_err_planck = ell[m], Dl_data[m], Dl_err_planck[m]
+        m = ell >= args.ell_min
+        ell, Dl_data, Dl_err_planck = ell[m], Dl_data[m], Dl_err_planck[m]
     if args.ell_max is not None:
-        m = ell <= args.ell_max; ell, Dl_data, Dl_err_planck = ell[m], Dl_data[m], Dl_err_planck[m]
+        m = ell <= args.ell_max
+        ell, Dl_data, Dl_err_planck = ell[m], Dl_data[m], Dl_err_planck[m]
 
+    # ---------- optional MG/Wilson kernel ----------
+    mg_cfg, mg_accept, kernel = None, None, None
+    if args.use_mg and args.mg_config:
+        try:
+            from .mg_kernel import IRKernel
+            mg_cfg_path = Path(args.mg_config)
+            if mg_cfg_path.exists():
+                mg_cfg = json.loads(mg_cfg_path.read_text())
+                kernel = IRKernel(**mg_cfg)
+                mg_accept = {
+                    "gr_symbol": bool(kernel.gr_principal_symbol_ok()),
+                    "shapiro_pos": bool(kernel.eikonal_shapiro_delay_positive()),
+                }
+                print(f"[mg] kernel loaded from {mg_cfg_path}  acceptance={mg_accept}")
+            else:
+                print(f"[mg] warning: --mg-config not found: {mg_cfg_path}")
+        except Exception as e:
+            print(f"[mg] warning: failed to init kernel: {e}")
+
+    # ---------- run.json (provenance) ----------
     write_run_json(args, outdir, data_path)
+    try:
+        meta = json.loads((outdir / "run.json").read_text())
+        meta["mg_kernel"] = {"enabled": bool(kernel is not None), "config": mg_cfg, "acceptance": mg_accept}
+        (outdir / "run.json").write_text(json.dumps(meta, indent=2))
+    except Exception:
+        pass
 
-    # ELM diagnostics (optional)
+    # ---------- optional ELM diagnostics ----------
     if args.elm_enable:
         elm_dir = outdir / "elm"; elm_dir.mkdir(parents=True, exist_ok=True)
         elm = EntropyLedgerMatrix(mode=args.elm_mode, alpha=args.elm_alpha, beta=args.elm_beta)
@@ -100,7 +129,8 @@ def run_cmb(args: argparse.Namespace) -> None:
                 plt.axis("off"); plt.tight_layout(); plt.savefig(elm_dir / f"{name}_real.png", dpi=200); plt.close()
                 plt.figure(figsize=(3,3)); plt.imshow(M.imag, cmap="gray", interpolation="nearest")
                 plt.axis("off"); plt.tight_layout(); plt.savefig(elm_dir / f"{name}_imag.png", dpi=200); plt.close()
-            except Exception: pass
+            except Exception:
+                pass
         for nm, M in bank.items(): _save_matrix(nm, M)
         gates = [g.strip().upper() for g in args.elm_gates.split(",") if g.strip()]
         if gates:
@@ -112,26 +142,35 @@ def run_cmb(args: argparse.Namespace) -> None:
                     elif g == "NOT": M = elm.transform_not(M, scale=args.elm_scale)
                 tag = "_".join(gates).lower(); _save_matrix(f"{base_name}__{tag}", M)
 
-    model_obj = EGRFreed7TT()
-    model_func  = build_model_function(model_obj)
+    # ---------- build model (kernel actually attached here) ----------
+    model_obj  = EGRFreed7TT(mg_kernel=kernel)
+    model_func = build_model_function(model_obj)
     param_order, p0, lb, ub = build_param_dict_and_bounds()
 
-    sweep_table = []; best = None
+    # ---------- epsilon sweep (optional) ----------
+    sweep_table, best = [], None
     if args.sweep.strip():
         sweep_vals = [float(x.strip()) for x in args.sweep.split(",") if x.strip()]
         print("\n=== ε_model sweep ==="); print("ε_model   χ²_red      Q_exp     ΔH_mix/N (nats)")
         for s in sweep_vals:
             res = run_fit(s, ell, Dl_data, Dl_err_planck, model_func, p0, lb, ub,
                           nstarts=args.starts, seed=args.seed)
-            if res is None: print(f"{s:7.4f}  (fit failed)"); continue
+            if res is None:
+                print(f"{s:7.4f}  (fit failed)"); continue
             print(f"{s:7.4f}  {res['chi2_red']:7.3f}  {res['Qexp']:10.6f}  {res['deltaH_pp_nats']:10.6f}")
-            sweep_table.append({"epsilon_model":res["epsilon_model"],"chi2_red":res["chi2_red"],
-                                "Qexp":res["Qexp"],"deltaH_pp_nats":res["deltaH_pp_nats"]})
-            if best is None or abs(res["chi2_red"] - 1.0) < abs(best["chi2_red"] - 1.0): best = res
+            sweep_table.append({
+                "epsilon_model": res["epsilon_model"],
+                "chi2_red": res["chi2_red"],
+                "Qexp": res["Qexp"],
+                "deltaH_pp_nats": res["deltaH_pp_nats"],
+            })
+            if best is None or abs(res["chi2_red"] - 1.0) < abs(best["chi2_red"] - 1.0):
+                best = res
         if best:
             print(f"\nBest by |χ²_red-1|: ε_model={best['epsilon_model']:.6f}  "
                   f"χ²_red={best['chi2_red']:.3f}  Q_exp={best['Qexp']:.6f}")
 
+    # ---------- pinned run ----------
     pinned = run_fit(args.epsilon_model, ell, Dl_data, Dl_err_planck, model_func, p0, lb, ub,
                      nstarts=args.starts, seed=args.seed)
     if pinned is None:
@@ -144,6 +183,13 @@ def run_cmb(args: argparse.Namespace) -> None:
     gof = gof_and_normality(rvec, dof)
     AIC, BIC = aic_bic(gof["chi2"], k=len(pinned["popt"]), N=len(ell))
 
+    # quick visibility of μ(k) if kernel is active
+    if kernel is not None:
+        kvec = ell / 14000.0
+        mu_vec = np.fromiter((model_obj.mu_k(1.0, float(ki)) for ki in kvec), dtype=float, count=len(kvec))
+        print(f"[mg] mu(k) stats  mean={np.mean(mu_vec):.4f}  min={np.min(mu_vec):.4f}  max={np.max(mu_vec):.4f}")
+
+    # ---------- AR(1) diagnostics ----------
     ar1_block = {}
     if args.ar1:
         z = (Dl_data - pinned["preds"]) / pinned["err"]
@@ -165,6 +211,7 @@ def run_cmb(args: argparse.Namespace) -> None:
                    "total_nats": float(Hn), "per_mode_nats": float(Hn_pm),
                    "total_bits": float(Hb), "per_mode_bits": float(Hb_pm)}
 
+    # ---------- residual ACF, save tables/plots ----------
     acf = residual_acf(rvec, 40)
     thr = 2/np.sqrt(len(rvec))
     nz_lags = (np.where(np.abs(acf[1:]) > thr)[0] + 1).tolist()
@@ -204,7 +251,8 @@ def run_cmb(args: argparse.Namespace) -> None:
         },
         "acf": {"threshold": float(thr), "lags_over_threshold": nz_lags},
         "param_order": ["R_gate","phi_ac","A_ac","A_pk","k_pk","sigma_pk","S_resp"],
-        "hit_bounds": pinned["hit_bounds"]
+        "hit_bounds": pinned["hit_bounds"],
+        "mg_kernel": {"enabled": bool(kernel is not None), "config": mg_cfg, "acceptance": mg_accept}
     }
     if ar1_block: posthoc["AR1"] = ar1_block
     if ar1_cal:   posthoc["AR1_calibrate"] = ar1_cal
@@ -216,6 +264,7 @@ def run_cmb(args: argparse.Namespace) -> None:
         ]
     (tables_dir / "posthoc.json").write_text(json.dumps(posthoc, indent=2))
 
+    # ---------- plots ----------
     if args.plot:
         plt.figure(figsize=(10,6))
         plt.errorbar(ell, Dl_data, yerr=pinned["err"], fmt='.', color='white', alpha=0.7, label="Data")
@@ -231,6 +280,7 @@ def run_cmb(args: argparse.Namespace) -> None:
         plt.xlabel(r"$\ell$"); plt.ylabel("whitened residual"); plt.title("Whitened residuals")
         plt.grid(alpha=0.3); plt.tight_layout(); plt.savefig(figs_dir / "cmbtt_residuals.png", dpi=200)
 
+    # ---------- MCMC (optional) ----------
     if args.mcmc:
         _, _, lb2, ub2 = build_param_dict_and_bounds()
         sampler, chain = mcmc_run(pinned["popt"], ell, Dl_data, pinned["err"],
@@ -258,7 +308,8 @@ def run_cmb(args: argparse.Namespace) -> None:
                                     show_titles=True, title_fmt=".3f")
                 fig.suptitle("MCMC — EGR-Freed7 (fixed ε_model)", fontsize=14)
                 fig.savefig(figs_dir / "cmbtt_corner.png", dpi=160)
-            except Exception: pass
+            except Exception:
+                pass
 
             C = corr_heatmap_from_chain(figs_dir / "cmbtt_corr.png", chain, names)
             if C is not None: mcmc_out["corr"] = {"matrix": C.tolist(), "names": names}
@@ -278,7 +329,8 @@ def run_cmb(args: argparse.Namespace) -> None:
             ph["mcmc"] = mcmc_out
             (tables_dir / "posthoc.json").write_text(json.dumps(ph, indent=2))
 
-    if args.plot: plt.show()
+    if args.plot:
+        plt.show()
 
     print("\n=== Pinned run (saved) ===")
     print(f" outdir : {outdir}")
@@ -286,6 +338,7 @@ def run_cmb(args: argparse.Namespace) -> None:
     print(f" χ²_red : {pinned['chi2_red']:.3f}  |  p(χ²,dof) = {gof['p_chi2']:.3g}")
     print(" figures:", [str(p) for p in outdir.joinpath('figs').glob('*.png')])
     print(" tables :", [str(p) for p in outdir.joinpath('tables').glob('*.*')])
+
 
 def build_argparser():
     ap = argparse.ArgumentParser()
@@ -315,6 +368,12 @@ def build_argparser():
     ap.add_argument("--elm-gates", default="")
     ap.add_argument("--elm-phase-scale", type=float, default=1.0)
     ap.add_argument("--elm-scale", type=float, default=1.0)
+
+    # MG / Wilsons (only logged unless you wire it in the solver)
+    ap.add_argument("--mg-config", default=None,
+                    help="Path to JSON with IR-EFT Wilson mapping (see configs/wilson_baseline.json)")
+    ap.add_argument("--use-mg", action="store_true",
+                    help="Enable modified-gravity kernel for scalar sector (mu/eta).")
     return ap
 
 def main():

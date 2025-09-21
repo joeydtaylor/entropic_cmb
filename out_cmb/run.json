@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2025-09-08T00:51:54.970008+00:00",
+  "timestamp_utc": "2025-09-21T17:58:29.733174+00:00",
   "args": {
     "data": "/work/data/COM_PowerSpect_CMB-TT-full_R3.01.txt",
     "outdir": "/work/out_cmb",
@@ -7,7 +7,7 @@
     "sweep": "",
     "ar1": true,
     "ar1_calibrate": true,
-    "band_scatter": true,
+    "band_scatter": false,
     "plot": true,
     "mcmc": true,
     "walkers": 64,
@@ -24,12 +24,32 @@
     "elm_beta": 0.35,
     "elm_gates": "",
     "elm_phase_scale": 1.0,
-    "elm_scale": 1.0
+    "elm_scale": 1.0,
+    "mg_config": "/work/configs/wilson_baseline.json",
+    "use_mg": true
   },
   "data_sha256": "ccf3113604020536f6f13ccf51680a7316ad0f32da558eee7f625e613bdd5522",
   "versions": {
-    "python": "3.12.11 (main, Aug 13 2025, 10:28:18) [GCC 14.2.0]",
-    "numpy": "2.3.2",
+    "python": "3.12.11 (main, Sep  9 2025, 00:14:52) [GCC 14.2.0]",
+    "numpy": "2.3.3",
     "matplotlib": "3.10.6"
+  },
+  "mg_kernel": {
+    "enabled": true,
+    "config": {
+      "mu_form": "wilson_ir",
+      "mu": 0.3001615492546175,
+      "ridge": 0.0001,
+      "cC2": 80.5,
+      "alpha_Ric": 1197.0,
+      "use_scalar_B": false,
+      "B": 0.0,
+      "k_uv": 3.0,
+      "gain": 20.0
+    },
+    "acceptance": {
+      "gr_symbol": true,
+      "shapiro_pos": true
+    }
   }
 }

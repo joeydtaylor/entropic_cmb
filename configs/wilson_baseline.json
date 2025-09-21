@@ -1,0 +1,11 @@
+{
+  "mu_form": "wilson_ir",
+  "mu": 0.3001615492546175,
+  "ridge": 0.0001,
+  "cC2": 80.5,
+  "alpha_Ric": 1197.0,
+  "use_scalar_B": false,
+  "B": 0.0,
+  "k_uv": 3.0,
+  "gain": 20.0
+}

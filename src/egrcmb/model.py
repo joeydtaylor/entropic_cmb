@@ -2,7 +2,8 @@ import numpy as np
 from .constants import *
 
 class EGRFreed7TT:
-    def __init__(self):
+    def __init__(self, mg_kernel=None):
+        self.mg_kernel = mg_kernel  # optional IR kernel; not used unless you call mu_k/eta_k
         self.degrees_of_freedom = BASE_DEGREES_OF_FREEDOM
         self.rotation_shear     = differential_rotation_shear_parameter_fixed
         self.vector_amp         = 12.0 * PI
@@ -13,6 +14,13 @@ class EGRFreed7TT:
         self.acoustic_scale     = acoustic_scale_fixed
         self.ell_silk_fixed     = ELL_SILK_FIXED
         self.ell_recomb_fixed   = PROTON_ELECTRON_MASS_RATIO
+
+    def mu_k(self, a: float, k: float) -> float:
+        # placeholder; returns GR unless you decide to use it in sourcing
+        return 1.0 if self.mg_kernel is None else self.mg_kernel.mu_k(a, k)
+
+    def eta_k(self, a: float, k: float) -> float:
+        return 1.0 if self.mg_kernel is None else self.mg_kernel.eta_k(a, k)
 
     def _j_invariant_contribution(self, ell):
         scale_safe = coupling_scale + 1e-10
@@ -81,7 +89,14 @@ class EGRFreed7TT:
         return (1.0 + wave_ampl_scaling * template * (wave + peak1)) * entropy_mod
 
     def predict_Dl(self, ell, R_gate, phi_ac, A_ac, A_pk, k_pk, sigma_pk, S_resp):
+        """
+        TT template with optional IR-kernel modulation.
+        If self.mg_kernel is None → GR (no modulation).
+        If present → multiply the lensed template by μ(k) with k = ℓ / 14000.
+        """
         Qexp = R_gate * S_resp
+
+        # base components (unchanged)
         vec = self._vector_mode_contribution(ell, Qexp)
         sca = self._scalar_mode_contribution(ell, Qexp)
         base_vs = vec * (1.0 + sca)
@@ -89,14 +104,27 @@ class EGRFreed7TT:
         modulated = base_vs * (1.0 + ten)
         coup = self._coupling_mode_contribution(ell)
         res  = self._resonance_mode_contribution(ell)
-        combo_cr = 1.0 + res*coup
+        combo_cr = 1.0 + res * coup
         j_bg  = 1.0 + self._j_invariant_contribution(ell)
         acoustic = self._acoustic_modulation(ell, Qexp, phi_ac, A_ac, A_pk, k_pk, sigma_pk, S_resp)
         combined = modulated * combo_cr * j_bg * acoustic
-        lens = np.exp(-ell*(ell+1.0)/(2.0*lens_scale**2))
+
+        # lensing + foregrounds (as before)
+        lens = np.exp(-ell * (ell + 1.0) / (2.0 * lens_scale**2))
         lensed_model = sph_harm_amplitude_fixed * combined * lens
-        ell_safe = np.where(ell==0,1.0,ell)
-        foreground = fg_amp_fixed*(ell_safe**fg_slope)
+        ell_safe = np.where(ell == 0, 1.0, ell)
+        foreground = fg_amp_fixed * (ell_safe**fg_slope)
+
+        # --- NEW: IR kernel modulation (active only if mg_kernel is set) ---
+        if self.mg_kernel is not None:
+            # map ℓ to comoving k; keep consistent with your acoustic shaping
+            k = np.asarray(ell, dtype=float) / 14000.0
+            # μ(k) evaluated at a≈1 for TT sensitivity; vectorize safely
+            mu_vec = np.fromiter((self.mu_k(1.0, float(ki)) for ki in k), dtype=float, count=len(k))
+            mu_vec = np.clip(mu_vec, 0.7, 1.3)
+            # gentle guard against pathological configs
+            lensed_model = lensed_model * mu_vec
+
         return lensed_model + foreground
 
 def build_param_dict_and_bounds():
